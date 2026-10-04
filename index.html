@@ -217,19 +217,8 @@
 
 <!-- RESULTS -->
 <div id="screen-results" class="screen">
-  <div class="results-section">
-    <h3 id="results-title">Resumen del partido</h3>
-    <div class="stat-grid" id="stat-grid"></div>
-  </div>
-  <div class="results-section">
-    <h3>Mapa de robo de posesión por parte</h3>
-    <div style="display:flex;gap:1rem;" id="heat-maps"></div>
-  </div>
-  <div class="results-section">
-    <h3>Partido completo — zonas acumuladas</h3>
-    <div id="combined-map" style="max-width:340px;margin:0 auto;"></div>
-  </div>
-  <div class="export-row">
+  <div id="results-content"></div>
+  <div class="export-row" style="margin-top:.75rem;">
     <button class="btn-export" onclick="sharePDFWhatsApp()">📊 Ver infografía</button>
   </div>
   <button class="btn-new-match" onclick="newMatch()">Nuevo partido</button>
@@ -702,88 +691,116 @@ function doEndMatch() {
 // ─── RESULTS ─────────────────────────────────────────────────────────────────
 function showResults() {
   showScreen('results');
-  document.getElementById('results-title').textContent = `vs ${state.rival} — ${state.date}`;
-
   const h1 = periodTotal(1), h2 = periodTotal(2), total = h1 + h2;
-  const p1 = periodTotalType(1,'pase') + periodTotalType(2,'pase');
-  const b1 = periodTotalType(1,'bote') + periodTotalType(2,'bote');
+  const pT = periodTotalType(1,'pase') + periodTotalType(2,'pase');
+  const bT = periodTotalType(1,'bote') + periodTotalType(2,'bote');
+  const combined = getCombinedSteals();
+  const rd1 = state.rivalDirection, rd2 = flipDirection(state.rivalDirection);
 
-  document.getElementById('stat-grid').innerHTML = `
-    <div class="stat-item"><div class="sv">${total}</div><div class="sl">Total robos</div></div>
-    <div class="stat-item"><div class="sv">${h1}</div><div class="sl">1ª parte</div></div>
-    <div class="stat-item"><div class="sv">${h2}</div><div class="sl">2ª parte</div></div>
-    <div class="stat-item"><div class="sv">${p1}</div><div class="sl">Robo en pase</div></div>
-    <div class="stat-item"><div class="sv">${b1}</div><div class="sl">Robo en bote</div></div>
-    <div class="stat-item"><div class="sv">${total > 0 ? Math.round(p1*100/total) : 0}%</div><div class="sl">% pase</div></div>
-  `;
+  const root = document.getElementById('results-content');
+  root.innerHTML = '';
 
-  // Helper: build mini court map
-  function buildMiniMap(stealFlat, rivalDir) {
-    const courtWrap = document.createElement('div');
-    courtWrap.className = 'court-mini-wrapper';
-    courtWrap.style.position = 'relative';
-    const svgEl = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  // ── Helper: mini court ──────────────────────────────────────────────────────
+  function miniCourt(data, rivalDir) {
+    const wrap = document.createElement('div');
+    wrap.className = 'court-mini-wrapper';
+    wrap.style.position = 'relative';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
     if (state.orient === 'lateral') {
-      svgEl.setAttribute('viewBox','0 0 800 400'); svgEl.style.aspectRatio = '2/1';
-      svgEl.innerHTML = courtSVGLateral() + attackArrowSVG(rivalDir, 'lateral');
+      svg.setAttribute('viewBox','0 0 800 400'); svg.style.aspectRatio = '2/1';
+      svg.innerHTML = courtSVGLateral() + attackArrowSVG(rivalDir, 'lateral');
     } else {
-      svgEl.setAttribute('viewBox','0 0 400 800'); svgEl.style.aspectRatio = '1/2';
-      svgEl.innerHTML = courtSVGFondo() + attackArrowSVG(rivalDir, 'fondo');
+      svg.setAttribute('viewBox','0 0 400 800'); svg.style.aspectRatio = '1/2';
+      svg.innerHTML = courtSVGFondo() + attackArrowSVG(rivalDir, 'fondo');
     }
-    svgEl.style.cssText = 'display:block;width:100%;';
-    courtWrap.appendChild(svgEl);
-    const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:grid;';
-    overlay.style.gridTemplateColumns = state.orient === 'lateral' ? 'repeat(4,1fr)' : 'repeat(2,1fr)';
-    overlay.style.gridTemplateRows = state.orient === 'lateral' ? 'repeat(2,1fr)' : 'repeat(4,1fr)';
-    const maxV = Math.max(...stealFlat, 1);
-    stealFlat.forEach(v => {
-      const cell = document.createElement('div');
-      cell.style.cssText = 'display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;';
-      const intensity = v / maxV;
-      cell.style.background = v > 0 ? `rgba(26,64,160,${(0.12+intensity*0.65).toFixed(2)})` : 'rgba(0,0,0,0.03)';
-      cell.style.color = intensity > 0.4 ? '#fff' : 'rgba(10,31,68,0.7)';
-      cell.textContent = v > 0 ? v : '';
-      overlay.appendChild(cell);
+    svg.style.cssText = 'display:block;width:100%;';
+    wrap.appendChild(svg);
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:grid;';
+    ov.style.gridTemplateColumns = state.orient==='lateral' ? 'repeat(4,1fr)' : 'repeat(2,1fr)';
+    ov.style.gridTemplateRows = state.orient==='lateral' ? 'repeat(2,1fr)' : 'repeat(4,1fr)';
+    const maxV = Math.max(...data, 1);
+    data.forEach(v => {
+      const c = document.createElement('div');
+      c.style.cssText = 'display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:800;';
+      const intensity = v/maxV;
+      c.style.background = v>0 ? `rgba(26,64,160,${(0.12+intensity*0.65).toFixed(2)})` : 'rgba(0,0,0,0.03)';
+      c.style.color = intensity>0.4 ? '#fff' : 'rgba(10,31,68,0.7)';
+      c.textContent = v>0 ? v : '';
+      ov.appendChild(c);
     });
-    courtWrap.appendChild(overlay);
-    return courtWrap;
+    wrap.appendChild(ov);
+    return wrap;
   }
 
-  // Mini heat maps — 3 static courts per half (pase / bote / total)
-  const heatMaps = document.getElementById('heat-maps');
-  heatMaps.innerHTML = '';
-  heatMaps.style.flexDirection = 'column';
-  heatMaps.style.gap = '1rem';
-  [1,2].forEach(half => {
-    const rivalDir = half === 1 ? state.rivalDirection : flipDirection(state.rivalDirection);
-    const s = state.steals[half];
-    const section = document.createElement('div');
-    const secLbl = document.createElement('div');
-    secLbl.style.cssText = 'font-size:.78rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:.4rem;';
-    secLbl.textContent = (half===1?'1ª parte':'2ª parte') + ` — ${periodTotal(half)} robos (pase: ${periodTotalType(half,'pase')} · bote: ${periodTotalType(half,'bote')})`;
-    section.appendChild(secLbl);
+  // ── Helper: add section ─────────────────────────────────────────────────────
+  function addSection(title, html) {
+    const sec = document.createElement('div');
+    sec.className = 'results-section';
+    sec.innerHTML = `<h3>${title}</h3>${html||''}`;
+    root.appendChild(sec);
+    return sec;
+  }
+
+  function addSectionEl(title) {
+    const sec = document.createElement('div');
+    sec.className = 'results-section';
+    const h = document.createElement('h3'); h.textContent = title;
+    sec.appendChild(h);
+    root.appendChild(sec);
+    return sec;
+  }
+
+  // ── Stats ───────────────────────────────────────────────────────────────────
+  addSection(`vs ${state.rival} — ${state.date}`, `
+    <div class="stat-grid">
+      <div class="stat-item"><div class="sv">${total}</div><div class="sl">Total robos</div></div>
+      <div class="stat-item"><div class="sv">${h1}</div><div class="sl">1ª parte</div></div>
+      <div class="stat-item"><div class="sv">${h2}</div><div class="sl">2ª parte</div></div>
+      <div class="stat-item"><div class="sv">${pT}</div><div class="sl">En pase</div></div>
+      <div class="stat-item"><div class="sv">${bT}</div><div class="sl">En bote</div></div>
+      <div class="stat-item"><div class="sv">${total>0?Math.round(pT*100/total):0}%</div><div class="sl">% pase</div></div>
+    </div>
+  `);
+
+  // ── 3 court rows: by type, each with 3 columns (1ª / 2ª / Completo) ─────────
+  const types = [
+    { key:'pase', label:'Robo en pase', color:'#1a40a0' },
+    { key:'bote', label:'Robo en bote', color:'#c97a00' },
+    { key:'total', label:'Total robos', color:'#0a1f44' },
+  ];
+
+  types.forEach(({ key, label, color }) => {
+    const d1 = key==='total' ? flatSteals(state.steals[1]) : state.steals[1][key];
+    const d2 = key==='total' ? flatSteals(state.steals[2]) : state.steals[2][key];
+    const dc = key==='total' ? flatSteals(combined) : combined[key];
+    const t1 = d1.reduce((a,b)=>a+b,0);
+    const t2 = d2.reduce((a,b)=>a+b,0);
+    const tc = t1+t2;
+
+    const sec = addSectionEl(label);
+    sec.querySelector('h3').style.color = color;
+
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;gap:.5rem;';
-    [['pase', s.pase], ['bote', s.bote], ['total', flatSteals(s)]].forEach(([name, data]) => {
+
+    [
+      { data: d1, dir: rd1, lbl: `1ª parte (${t1})` },
+      { data: d2, dir: rd2, lbl: `2ª parte (${t2})` },
+      { data: dc, dir: rd1, lbl: `Completo (${tc})` },
+    ].forEach(({ data, dir, lbl }) => {
       const col = document.createElement('div');
       col.style.flex = '1';
       const sublbl = document.createElement('div');
-      sublbl.style.cssText = 'font-size:.68rem;font-weight:700;color:var(--blue-dark);text-align:center;margin-bottom:2px;text-transform:uppercase;';
-      sublbl.textContent = name;
+      sublbl.style.cssText = 'font-size:.65rem;font-weight:700;color:var(--text-muted);text-align:center;margin-bottom:3px;text-transform:uppercase;';
+      sublbl.textContent = lbl;
       col.appendChild(sublbl);
-      col.appendChild(buildMiniMap(data, rivalDir));
+      col.appendChild(miniCourt(data, dir));
       row.appendChild(col);
     });
-    section.appendChild(row);
-    heatMaps.appendChild(section);
-  });
 
-  // Combined map
-  const combined = getCombinedSteals();
-  const combinedDiv = document.getElementById('combined-map');
-  combinedDiv.innerHTML = '';
-  combinedDiv.appendChild(buildMiniMap(flatSteals(combined), state.rivalDirection));
+    sec.appendChild(row);
+  });
 }
 
 // ─── COMBINED STEALS (mirror H2 onto H1 quadrants) ──────────────────────────
