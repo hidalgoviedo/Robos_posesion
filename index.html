@@ -224,6 +224,15 @@
   <button class="btn-new-match" onclick="newMatch()">Nuevo partido</button>
 </div>
 
+<!-- IMAGE OVERLAY -->
+<div id="img-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:200;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:.75rem 1rem;position:sticky;top:0;background:rgba(0,0,0,0.8);">
+    <span style="color:#fff;font-size:.85rem;opacity:.8;">Mantén pulsada la imagen para guardarla o compartirla</span>
+    <button onclick="document.getElementById('img-overlay').style.display='none'" style="background:var(--yellow);color:var(--blue-dark);border:none;border-radius:8px;padding:.4rem .9rem;font-weight:700;font-size:.9rem;cursor:pointer;">Cerrar</button>
+  </div>
+  <img id="img-overlay-img" src="" style="width:100%;display:block;" />
+</div>
+
 <!-- CONFIRM OVERLAY -->
 <div class="confirm-overlay" id="confirm-overlay" style="display:none">
   <div class="confirm-box">
@@ -1075,11 +1084,9 @@ async function sharePDFWhatsApp() {
     ctx.fillText('Club Deportivo El Valle · Robo de posesión', IW/2, IH - 12);
     ctx.textAlign = 'left';
 
-    // Open image in new browser tab
+    // Show image in overlay so iOS can long-press to save/share
     const jpgDataUrl = canvas.toDataURL('image/jpeg', 0.92);
-    const w = window.open('', '_blank');
-    w.document.write(`<html><head><title>El Valle vs ${state.rival}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:#000;display:flex;justify-content:center;align-items:flex-start;}img{max-width:100%;}</style></head><body><img src="${jpgDataUrl}"/></body></html>`);
-    w.document.close();
+    showImageOverlay(jpgDataUrl);
 
   } catch(e) {
     alert('Error al generar la imagen: ' + e.message);
@@ -1101,6 +1108,14 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.lineTo(x, y + r);
   ctx.arcTo(x, y, x + r, y, r);
   ctx.closePath();
+}
+
+// ─── IMAGE OVERLAY ───────────────────────────────────────────────────────────
+function showImageOverlay(dataUrl) {
+  document.getElementById('img-overlay-img').src = dataUrl;
+  const ov = document.getElementById('img-overlay');
+  ov.style.display = 'block';
+  ov.scrollTop = 0;
 }
 
 // ─── CONFIRM MODAL ───────────────────────────────────────────────────────────
