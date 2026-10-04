@@ -787,28 +787,42 @@ function showResults() {
     const t2 = d2.reduce((a,b)=>a+b,0);
     const tc = t1+t2;
 
-    const sec = addSectionEl(label);
-    sec.querySelector('h3').style.color = color;
+    const sec = document.createElement('div');
+    sec.className = 'results-section';
 
+    // Type label — full width, clearly separated
+    const typeHeader = document.createElement('div');
+    typeHeader.style.cssText = `font-size:.82rem;font-weight:800;color:${color};text-transform:uppercase;letter-spacing:.04em;margin-bottom:.5rem;padding-bottom:.3rem;border-bottom:2px solid ${color};`;
+    typeHeader.textContent = label;
+    sec.appendChild(typeHeader);
+
+    // Column headers row
+    const headers = document.createElement('div');
+    headers.style.cssText = 'display:flex;gap:.5rem;margin-bottom:.25rem;';
+    ['1ª parte', '2ª parte', 'Completo'].forEach((h, i) => {
+      const counts = [t1, t2, tc][i];
+      const hd = document.createElement('div');
+      hd.style.cssText = 'flex:1;text-align:center;font-size:.68rem;font-weight:700;color:var(--text-muted);';
+      hd.textContent = `${h} (${counts})`;
+      headers.appendChild(hd);
+    });
+    sec.appendChild(headers);
+
+    // Courts row
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;gap:.5rem;';
-
     [
-      { data: d1, dir: rd1, lbl: `1ª parte (${t1})` },
-      { data: d2, dir: rd2, lbl: `2ª parte (${t2})` },
-      { data: dc, dir: rd1, lbl: `Completo (${tc})` },
-    ].forEach(({ data, dir, lbl }) => {
+      { data: d1, dir: rd1 },
+      { data: d2, dir: rd2 },
+      { data: dc, dir: rd1 },
+    ].forEach(({ data, dir }) => {
       const col = document.createElement('div');
       col.style.flex = '1';
-      const sublbl = document.createElement('div');
-      sublbl.style.cssText = 'font-size:.65rem;font-weight:700;color:var(--text-muted);text-align:center;margin-bottom:3px;text-transform:uppercase;';
-      sublbl.textContent = lbl;
-      col.appendChild(sublbl);
       col.appendChild(miniCourt(data, dir));
       row.appendChild(col);
     });
-
     sec.appendChild(row);
+    root.appendChild(sec);
   });
 }
 
@@ -976,21 +990,22 @@ async function sharePDFWhatsApp() {
 
     // ── Layout constants ──────────────────────────────────────────────────────
     const IW = 1080, pad = 28;
-    const headerH = 100, statsH = 90, labelH = 30, footerH = 36, gap = 14;
+    const headerH = 100, statsH = 90, footerH = 36, gap = 14;
+    const titleH = 30;   // height for section title line
+    const colLblH = 28;  // height for column sub-labels
+    const courtsGap = 10;
 
     // 3 courts side by side (pase / bote / total) × 2 halves
-    // Then 1 combined court full width
     const thirdW = Math.floor((IW - pad*2 - gap*2) / 3);
     const thirdH = isLateral ? Math.round(thirdW / 2) : Math.round(thirdW * 2);
     const combCW = IW - pad*2;
     const combCH = isLateral ? Math.round(combCW / 2) : Math.round(combCW * 2);
 
-    // 2 half rows + 1 combined row
-    const halfRowH = labelH + thirdH + gap;
+    const halfRowH = titleH + colLblH + thirdH + courtsGap;
     const IH = headerH + statsH + pad
              + halfRowH        // 1ª parte
              + halfRowH        // 2ª parte
-             + labelH + combCH
+             + titleH + combCH
              + footerH + pad;
 
     const canvas = document.createElement('canvas');
@@ -1042,23 +1057,36 @@ async function sharePDFWhatsApp() {
 
     // ── Helper: section title + 3 courts (pase / bote / total) ───────────────
     const draw3Courts = (label, stealObj, rivalDir, startY) => {
-      // Section title
+      // Row 1: section title (full width)
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(pad, startY, IW - pad*2, titleH - 4);
       ctx.fillStyle = '#0a1f44';
-      ctx.font = 'bold 20px Arial';
+      ctx.font = 'bold 19px Arial';
       ctx.textAlign = 'left';
-      ctx.fillText(label, pad, startY + 22);
+      ctx.fillText(label, pad, startY + titleH - 8);
 
-      const subLabels = ['Pase', 'Bote', 'Total'];
+      // Row 2: column sub-labels centered over each court
+      const subLabels = [
+        `Pase (${stealObj.pase.reduce((a,b)=>a+b,0)})`,
+        `Bote (${stealObj.bote.reduce((a,b)=>a+b,0)})`,
+        `Total (${flatSteals(stealObj).reduce((a,b)=>a+b,0)})`
+      ];
       const subSteals = [stealObj.pase, stealObj.bote, flatSteals(stealObj)];
+      const colLblY = startY + titleH;
+      subLabels.forEach((lbl, ci) => {
+        const cx = pad + ci * (thirdW + gap);
+        ctx.fillStyle = '#3a5080';
+        ctx.font = `bold ${Math.round(thirdW * 0.08)}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText(lbl, cx + thirdW/2, colLblY + colLblH - 6);
+      });
+
+      // Row 3: courts
+      const courtY = startY + titleH + colLblH;
       subSteals.forEach((data, ci) => {
         const cx = pad + ci * (thirdW + gap);
-        // sub-label
-        ctx.fillStyle = '#3a5080';
-        ctx.font = `bold ${Math.round(thirdW * 0.085)}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.fillText(subLabels[ci], cx + thirdW/2, startY + labelH - 2);
         ctx.textAlign = 'left';
-        drawCourtOnCanvas(ctx, data, rivalDir, cx, startY + labelH, thirdW, thirdH);
+        drawCourtOnCanvas(ctx, data, rivalDir, cx, courtY, thirdW, thirdH);
       });
     };
 
@@ -1073,9 +1101,9 @@ async function sharePDFWhatsApp() {
     // ── Partido completo ──────────────────────────────────────────────────────
     const combY = half2Y + halfRowH;
     ctx.fillStyle = '#0a1f44';
-    ctx.font = 'bold 20px Arial';
-    ctx.fillText(`PARTIDO COMPLETO — ${total} robos  (pase: ${paseTotal}  bote: ${boteTotal})`, pad, combY + 22);
-    drawCourtOnCanvas(ctx, flatSteals(combined), rd1, pad, combY + labelH, combCW, combCH);
+    ctx.font = 'bold 19px Arial';
+    ctx.fillText(`PARTIDO COMPLETO — ${total} robos  (pase: ${paseTotal}  bote: ${boteTotal})`, pad, combY + titleH - 8);
+    drawCourtOnCanvas(ctx, flatSteals(combined), rd1, pad, combY + titleH, combCW, combCH);
 
     // Footer
     ctx.font = '18px Arial';
