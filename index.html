@@ -92,6 +92,10 @@
   .q-btn.minus { background: rgba(255,255,255,0.7); color: var(--text-muted); border: 1.5px solid var(--border); }
   .q-btn.minus:hover { background: #fff; }
   .q-label { font-size: 0.62rem; color: rgba(10,31,68,0.65); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+  .q-type-row { display: flex; align-items: center; gap: 2px; }
+  .q-type-lbl { font-size: clamp(0.55rem,1.8vw,0.75rem); font-weight: 800; color: rgba(10,31,68,0.6); width: clamp(0.9rem,2.5vw,1.1rem); text-align: center; }
+  .q-type-cnt { font-size: clamp(0.8rem,2.5vw,1.1rem); font-weight: 800; color: var(--blue-dark); background: rgba(255,255,255,0.88); border-radius: 4px; min-width: clamp(1.2rem,3.5vw,1.6rem); text-align: center; padding: 1px 2px; }
+  .q-type-cnt.has-steals { background: var(--yellow); }
 
   /* TOTALS */
   .totals-row { display: flex; gap: 0.4rem; margin-top: 0.4rem; flex-shrink: 0; }
@@ -185,7 +189,6 @@
     <div class="period-badge" id="period-badge">1ª parte</div>
     <div class="spacer"></div>
     <button class="btn-half" id="btn-half" onclick="confirmHalfTime()">Descanso →</button>
-    <button class="btn-end" onclick="confirmEndMatch()">Finalizar</button>
   </div>
 
   <div class="court-wrapper" id="court-wrapper">
@@ -259,7 +262,10 @@ function defaultState() {
     // 8 quadrants per period. Q0-Q7 in visual order (top-left to bottom-right, row by row)
     // For 'lateral': 4 cols x 2 rows => Q[row][col], stored flat row-major
     // For 'fondo':   2 cols x 4 rows => same
-    steals: { 1: Array(8).fill(0), 2: Array(8).fill(0) },
+    steals: {
+      1: { pase: Array(8).fill(0), bote: Array(8).fill(0) },
+      2: { pase: Array(8).fill(0), bote: Array(8).fill(0) }
+    },
     finished: false,
     date: new Date().toLocaleDateString('es-ES')
   };
@@ -271,9 +277,16 @@ function loadState() {
     const s = localStorage.getItem(STATE_KEY);
     if (s) {
       state = JSON.parse(s);
-      // Ensure steals are proper arrays after JSON parse
-      state.steals[1] = Array.from(state.steals[1] || Array(8).fill(0));
-      state.steals[2] = Array.from(state.steals[2] || Array(8).fill(0));
+      // Ensure steals structure is correct after JSON parse
+      [1,2].forEach(p => {
+        if (!state.steals[p] || Array.isArray(state.steals[p])) {
+          // migrate old format
+          const old = Array.isArray(state.steals[p]) ? state.steals[p] : Array(8).fill(0);
+          state.steals[p] = { pase: old, bote: Array(8).fill(0) };
+        }
+        state.steals[p].pase = Array.from(state.steals[p].pase || Array(8).fill(0));
+        state.steals[p].bote = Array.from(state.steals[p].bote || Array(8).fill(0));
+      });
     }
   } catch(e) { state = null; }
 }
@@ -534,60 +547,83 @@ function getQuadrantLabels() {
 function renderQuadrants() {
   const overlay = document.getElementById('quadrant-overlay');
   overlay.innerHTML = '';
-  const labels = getQuadrantLabels();
-  const steals = state.steals[state.period];
-  steals.forEach((count, i) => {
+  const s = state.steals[state.period];
+
+  for (let i = 0; i < 8; i++) {
     const q = document.createElement('div');
     q.className = 'quadrant';
     q.dataset.idx = i;
 
-    const lbl = document.createElement('div'); // no label shown
+    ['pase','bote'].forEach(type => {
+      const row = document.createElement('div');
+      row.className = 'q-type-row';
 
-    const cnt = document.createElement('div');
-    cnt.className = 'count' + (count > 0 ? ' has-steals' : '');
-    cnt.id = `q-count-${i}`;
-    cnt.textContent = count;
+      const lbl = document.createElement('span');
+      lbl.className = 'q-type-lbl';
+      lbl.textContent = type === 'pase' ? 'P' : 'B';
 
-    const btns = document.createElement('div');
-    btns.className = 'q-btns';
+      const minus = document.createElement('button');
+      minus.className = 'q-btn minus';
+      minus.textContent = '−';
+      minus.addEventListener('click', e => { e.stopPropagation(); changeSteal(i, type, -1); });
 
-    const minus = document.createElement('button');
-    minus.className = 'q-btn minus';
-    minus.textContent = '−';
-    minus.setAttribute('aria-label', `Quitar robo cuadrante ${i+1}`);
-    minus.addEventListener('click', (e) => { e.stopPropagation(); changeSteal(i, -1); });
+      const cnt = document.createElement('span');
+      cnt.className = 'q-type-cnt' + (s[type][i] > 0 ? ' has-steals' : '');
+      cnt.id = `q-${type}-${i}`;
+      cnt.textContent = s[type][i];
 
-    const plus = document.createElement('button');
-    plus.className = 'q-btn plus';
-    plus.textContent = '+';
-    plus.setAttribute('aria-label', `Añadir robo cuadrante ${i+1}`);
-    plus.addEventListener('click', (e) => { e.stopPropagation(); changeSteal(i, 1); });
+      const plus = document.createElement('button');
+      plus.className = 'q-btn plus';
+      plus.textContent = '+';
+      plus.addEventListener('click', e => { e.stopPropagation(); changeSteal(i, type, 1); });
 
-    btns.appendChild(minus);
-    btns.appendChild(plus);
-    q.appendChild(lbl);
-    q.appendChild(cnt);
-    q.appendChild(btns);
+      row.appendChild(lbl);
+      row.appendChild(minus);
+      row.appendChild(cnt);
+      row.appendChild(plus);
+      q.appendChild(row);
+    });
+
+    // Total badge
+    const total = s.pase[i] + s.bote[i];
+    const tot = document.createElement('div');
+    tot.className = 'count' + (total > 0 ? ' has-steals' : '');
+    tot.id = `q-count-${i}`;
+    tot.textContent = total || '';
+    q.appendChild(tot);
+
     overlay.appendChild(q);
-  });
+  }
 }
 
-function changeSteal(idx, delta) {
-  const cur = state.steals[state.period][idx];
+function changeSteal(idx, type, delta) {
+  const cur = state.steals[state.period][type][idx];
   if (cur + delta < 0) return;
-  state.steals[state.period][idx] += delta;
+  state.steals[state.period][type][idx] += delta;
   saveState();
-  const cnt = document.getElementById(`q-count-${idx}`);
+  const cnt = document.getElementById(`q-${type}-${idx}`);
   if (cnt) {
-    cnt.textContent = state.steals[state.period][idx];
-    cnt.className = 'count' + (state.steals[state.period][idx] > 0 ? ' has-steals' : '');
+    cnt.textContent = state.steals[state.period][type][idx];
+    cnt.className = 'q-type-cnt' + (state.steals[state.period][type][idx] > 0 ? ' has-steals' : '');
+  }
+  const total = state.steals[state.period].pase[idx] + state.steals[state.period].bote[idx];
+  const tot = document.getElementById(`q-count-${idx}`);
+  if (tot) {
+    tot.textContent = total || '';
+    tot.className = 'count' + (total > 0 ? ' has-steals' : '');
   }
   updateTotals();
 }
 
+function periodTotal(p) {
+  const s = state.steals[p];
+  return s.pase.reduce((a,b)=>a+b,0) + s.bote.reduce((a,b)=>a+b,0);
+}
+function periodTotalType(p, type) {
+  return state.steals[p][type].reduce((a,b)=>a+b,0);
+}
 function updateTotals() {
-  const h1 = state.steals[1].reduce((a,b)=>a+b,0);
-  const h2 = state.steals[2].reduce((a,b)=>a+b,0);
+  const h1 = periodTotal(1), h2 = periodTotal(2);
   document.getElementById('total-h1').textContent = h1;
   document.getElementById('total-h2').textContent = h2;
   document.getElementById('total-all').textContent = h1 + h2;
@@ -668,80 +704,88 @@ function showResults() {
   showScreen('results');
   document.getElementById('results-title').textContent = `vs ${state.rival} — ${state.date}`;
 
-  const h1 = state.steals[1].reduce((a,b)=>a+b,0);
-  const h2 = state.steals[2].reduce((a,b)=>a+b,0);
-  const total = h1 + h2;
-
-  const maxQ = Math.max(...state.steals[1], ...state.steals[2], 1);
-  const hotQ1 = state.steals[1].indexOf(Math.max(...state.steals[1]));
-  const hotQ2 = state.steals[2].indexOf(Math.max(...state.steals[2]));
+  const h1 = periodTotal(1), h2 = periodTotal(2), total = h1 + h2;
+  const p1 = periodTotalType(1,'pase') + periodTotalType(2,'pase');
+  const b1 = periodTotalType(1,'bote') + periodTotalType(2,'bote');
 
   document.getElementById('stat-grid').innerHTML = `
-    <div class="stat-item"><div class="sv">${total}</div><div class="sl">Total robos de posesión</div></div>
+    <div class="stat-item"><div class="sv">${total}</div><div class="sl">Total robos</div></div>
     <div class="stat-item"><div class="sv">${h1}</div><div class="sl">1ª parte</div></div>
     <div class="stat-item"><div class="sv">${h2}</div><div class="sl">2ª parte</div></div>
-    <div class="stat-item"><div class="sv">${(total/2).toFixed(1)}</div><div class="sl">Media/parte</div></div>
-    <div class="stat-item"><div class="sv">${h1 > h2 ? '1ª' : h2 > h1 ? '2ª' : '='}</div><div class="sl">Parte activa</div></div>
-    <div class="stat-item"><div class="sv">${state.orient === 'fondo' ? 'Fondo' : 'Lateral'}</div><div class="sl">Vista</div></div>
+    <div class="stat-item"><div class="sv">${p1}</div><div class="sl">Robo en pase</div></div>
+    <div class="stat-item"><div class="sv">${b1}</div><div class="sl">Robo en bote</div></div>
+    <div class="stat-item"><div class="sv">${total > 0 ? Math.round(p1*100/total) : 0}%</div><div class="sl">% pase</div></div>
   `;
 
-  // Mini heat maps
-  const heatMaps = document.getElementById('heat-maps');
-  heatMaps.innerHTML = '';
-  [1,2].forEach(half => {
-    const wrap = document.createElement('div');
-    wrap.style.flex = '1';
-    const title = document.createElement('div');
-    title.style.cssText = 'font-size:.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:.4rem;';
-    title.textContent = half === 1 ? '1ª parte' : '2ª parte';
-    wrap.appendChild(title);
-
+  // Helper: build mini court map
+  function buildMiniMap(stealFlat, rivalDir) {
     const courtWrap = document.createElement('div');
     courtWrap.className = 'court-mini-wrapper';
     courtWrap.style.position = 'relative';
-
     const svgEl = document.createElementNS('http://www.w3.org/2000/svg','svg');
-    // rival direction for this half (flipped in 2nd)
-    const rivalDirHalf = half === 1 ? state.rivalDirection : flipDirection(state.rivalDirection);
     if (state.orient === 'lateral') {
-      svgEl.setAttribute('viewBox','0 0 800 400');
-      svgEl.style.aspectRatio = '2/1';
-      svgEl.innerHTML = courtSVGLateral() + attackArrowSVG(rivalDirHalf, 'lateral');
+      svgEl.setAttribute('viewBox','0 0 800 400'); svgEl.style.aspectRatio = '2/1';
+      svgEl.innerHTML = courtSVGLateral() + attackArrowSVG(rivalDir, 'lateral');
     } else {
-      svgEl.setAttribute('viewBox','0 0 400 800');
-      svgEl.style.aspectRatio = '1/2';
-      svgEl.innerHTML = courtSVGFondo() + attackArrowSVG(rivalDirHalf, 'fondo');
+      svgEl.setAttribute('viewBox','0 0 400 800'); svgEl.style.aspectRatio = '1/2';
+      svgEl.innerHTML = courtSVGFondo() + attackArrowSVG(rivalDir, 'fondo');
     }
-    svgEl.style.display = 'block';
-    svgEl.style.width = '100%';
+    svgEl.style.cssText = 'display:block;width:100%;';
     courtWrap.appendChild(svgEl);
-
-    // heat overlay
-    const heatOverlay = document.createElement('div');
-    heatOverlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:grid;';
-    if (state.orient === 'lateral') {
-      heatOverlay.style.gridTemplateColumns = 'repeat(4,1fr)';
-      heatOverlay.style.gridTemplateRows = 'repeat(2,1fr)';
-    } else {
-      heatOverlay.style.gridTemplateColumns = 'repeat(2,1fr)';
-      heatOverlay.style.gridTemplateRows = 'repeat(4,1fr)';
-    }
-
-    state.steals[half].forEach((v, i) => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:grid;';
+    overlay.style.gridTemplateColumns = state.orient === 'lateral' ? 'repeat(4,1fr)' : 'repeat(2,1fr)';
+    overlay.style.gridTemplateRows = state.orient === 'lateral' ? 'repeat(2,1fr)' : 'repeat(4,1fr)';
+    const maxV = Math.max(...stealFlat, 1);
+    stealFlat.forEach(v => {
       const cell = document.createElement('div');
-      cell.style.cssText = 'display:flex;align-items:center;justify-content:center;font-size:1.2rem;font-weight:800;';
-      const intensity = maxQ > 0 ? v / maxQ : 0;
-      const alpha = 0.1 + intensity * 0.65;
-      cell.style.background = intensity > 0
-        ? `rgba(224,123,57,${alpha})`
-        : 'rgba(0,0,0,0.03)';
-      cell.style.color = intensity > 0.4 ? '#fff' : 'rgba(26,58,42,0.7)';
+      cell.style.cssText = 'display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;';
+      const intensity = v / maxV;
+      cell.style.background = v > 0 ? `rgba(26,64,160,${(0.12+intensity*0.65).toFixed(2)})` : 'rgba(0,0,0,0.03)';
+      cell.style.color = intensity > 0.4 ? '#fff' : 'rgba(10,31,68,0.7)';
       cell.textContent = v > 0 ? v : '';
-      heatOverlay.appendChild(cell);
+      overlay.appendChild(cell);
     });
+    courtWrap.appendChild(overlay);
+    return courtWrap;
+  }
 
-    courtWrap.appendChild(heatOverlay);
-    wrap.appendChild(courtWrap);
+  // Mini heat maps — two tabs: Pase / Bote / Total per half
+  const heatMaps = document.getElementById('heat-maps');
+  heatMaps.innerHTML = '';
+  [1,2].forEach(half => {
+    const rivalDir = half === 1 ? state.rivalDirection : flipDirection(state.rivalDirection);
+    const s = state.steals[half];
+    const wrap = document.createElement('div');
+    wrap.style.flex = '1';
+
+    const lbl = document.createElement('div');
+    lbl.style.cssText = 'font-size:.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:.3rem;';
+    lbl.textContent = (half === 1 ? '1ª parte' : '2ª parte') + ` — ${periodTotal(half)} robos`;
+    wrap.appendChild(lbl);
+
+    // Sub-tabs: P B T
+    const tabs = document.createElement('div');
+    tabs.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;';
+    const maps = { pase: buildMiniMap(s.pase, rivalDir), bote: buildMiniMap(s.bote, rivalDir), total: buildMiniMap(flatSteals(s), rivalDir) };
+    let active = 'total';
+    Object.keys(maps).forEach(k => { maps[k].style.display = k === active ? '' : 'none'; wrap.appendChild(maps[k]); });
+    ['pase','bote','total'].forEach(k => {
+      const tb = document.createElement('button');
+      tb.textContent = k === 'pase' ? 'Pase' : k === 'bote' ? 'Bote' : 'Total';
+      tb.style.cssText = `flex:1;padding:3px;font-size:.7rem;font-weight:700;border-radius:6px;border:1.5px solid var(--border);cursor:pointer;background:${k===active?'var(--blue-dark)':'var(--surface)'};color:${k===active?'var(--yellow)':'var(--text-muted)'};`;
+      tb.addEventListener('click', () => {
+        active = k;
+        Object.keys(maps).forEach(m => { maps[m].style.display = m === k ? '' : 'none'; });
+        tabs.querySelectorAll('button').forEach((b,bi) => {
+          const mk = ['pase','bote','total'][bi];
+          b.style.background = mk===k ? 'var(--blue-dark)' : 'var(--surface)';
+          b.style.color = mk===k ? 'var(--yellow)' : 'var(--text-muted)';
+        });
+      });
+      tabs.appendChild(tb);
+    });
+    wrap.insertBefore(tabs, maps.pase);
     heatMaps.appendChild(wrap);
   });
 
@@ -749,70 +793,30 @@ function showResults() {
   const combined = getCombinedSteals();
   const combinedDiv = document.getElementById('combined-map');
   combinedDiv.innerHTML = '';
-  const combWrap = document.createElement('div');
-  combWrap.className = 'court-mini-wrapper';
-  combWrap.style.position = 'relative';
-  const combSvg = document.createElementNS('http://www.w3.org/2000/svg','svg');
-  if (state.orient === 'lateral') {
-    combSvg.setAttribute('viewBox','0 0 800 400');
-    combSvg.style.aspectRatio = '2/1';
-    combSvg.innerHTML = courtSVGLateral() + attackArrowSVG(state.rivalDirection, 'lateral');
-  } else {
-    combSvg.setAttribute('viewBox','0 0 400 800');
-    combSvg.style.aspectRatio = '1/2';
-    combSvg.innerHTML = courtSVGFondo() + attackArrowSVG(state.rivalDirection, 'fondo');
-  }
-  combSvg.style.display = 'block';
-  combSvg.style.width = '100%';
-  combWrap.appendChild(combSvg);
-
-  const combOverlay = document.createElement('div');
-  combOverlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:grid;';
-  if (state.orient === 'lateral') {
-    combOverlay.style.gridTemplateColumns = 'repeat(4,1fr)';
-    combOverlay.style.gridTemplateRows = 'repeat(2,1fr)';
-  } else {
-    combOverlay.style.gridTemplateColumns = 'repeat(2,1fr)';
-    combOverlay.style.gridTemplateRows = 'repeat(4,1fr)';
-  }
-  const maxComb = Math.max(...combined, 1);
-  combined.forEach(v => {
-    const cell = document.createElement('div');
-    cell.style.cssText = 'display:flex;align-items:center;justify-content:center;font-size:1.3rem;font-weight:800;';
-    const intensity = v / maxComb;
-    const alpha = v > 0 ? 0.12 + intensity * 0.65 : 0;
-    cell.style.background = v > 0 ? `rgba(26,64,160,${alpha})` : 'rgba(0,0,0,0.03)';
-    cell.style.color = intensity > 0.4 ? '#fff' : 'rgba(10,31,68,0.7)';
-    cell.textContent = v > 0 ? v : '';
-    combOverlay.appendChild(cell);
-  });
-  combWrap.appendChild(combOverlay);
-  combinedDiv.appendChild(combWrap);
+  combinedDiv.appendChild(buildMiniMap(flatSteals(combined), state.rivalDirection));
 }
 
 // ─── COMBINED STEALS (mirror H2 onto H1 quadrants) ──────────────────────────
-function getCombinedSteals() {
+function mirrorIndex(i) {
   const isLateral = state.orient === 'lateral';
   const cols = isLateral ? 4 : 2;
   const rows = isLateral ? 2 : 4;
-  const combined = Array(8).fill(0);
-  // H1 maps 1:1
-  state.steals[1].forEach((v, i) => { combined[i] += v; });
-  // H2: mirror axis is horizontal (lateral) or vertical (fondo)
-  state.steals[2].forEach((v, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    let mirrorIdx;
-    if (isLateral) {
-      // flip column: col → (cols-1-col)
-      mirrorIdx = row * cols + (cols - 1 - col);
-    } else {
-      // flip row: row → (rows-1-row)
-      mirrorIdx = (rows - 1 - row) * cols + col;
-    }
-    combined[mirrorIdx] += v;
+  const col = i % cols, row = Math.floor(i / cols);
+  if (isLateral) return row * cols + (cols - 1 - col);
+  return (rows - 1 - row) * cols + col;
+}
+
+function getCombinedSteals() {
+  const combined = { pase: Array(8).fill(0), bote: Array(8).fill(0) };
+  ['pase','bote'].forEach(type => {
+    state.steals[1][type].forEach((v, i) => { combined[type][i] += v; });
+    state.steals[2][type].forEach((v, i) => { combined[type][mirrorIndex(i)] += v; });
   });
   return combined;
+}
+
+function flatSteals(stealObj) {
+  return stealObj.pase.map((v, i) => v + stealObj.bote[i]);
 }
 
 // ─── DRAW COURT ON CANVAS (pure 2D, no SVG, iOS safe) ───────────────────────
@@ -952,96 +956,101 @@ async function sharePDFWhatsApp() {
     const combined = getCombinedSteals();
     const isLateral = state.orient === 'lateral';
 
-    // Court pixel size in infographic
-    const cW = isLateral ? 500 : 250;
-    const cH = isLateral ? 250 : 500;
+    // ── Layout constants ──────────────────────────────────────────────────────
+    const IW = 1080, pad = 32;
+    const headerH = 100, statsH = 86, labelH = 34, footerH = 36, gap = 16;
 
-    // Infographic canvas: 1080px wide (portrait, WhatsApp friendly)
-    const IW = 1080, pad = 36;
-    const headerH = 110;
-    const statsH = 90;
-    const labelH = 36;
-    const halfRowH = labelH + cH + pad;
-    const combRowH = labelH + cH + pad;
-    const footerH = 40;
-    const IH = headerH + statsH + halfRowH + combRowH + footerH + pad;
+    // Court sizes: half courts side by side, combined fills width
+    const halfCW = Math.floor((IW - pad*2 - gap) / 2);
+    const halfCH = isLateral ? Math.round(halfCW / 2) : Math.round(halfCW * 2);
+    const combCW = IW - pad*2;
+    const combCH = isLateral ? Math.round(combCW / 2) : Math.round(combCW * 2);
+
+    const IH = headerH + statsH + pad
+             + labelH + halfCH + pad
+             + labelH + combCH + footerH + pad;
 
     const canvas = document.createElement('canvas');
     canvas.width = IW; canvas.height = IH;
     const ctx = canvas.getContext('2d');
 
-    // Background
-    ctx.fillStyle = '#f0f4f8';
+    // ── Background ────────────────────────────────────────────────────────────
+    ctx.fillStyle = '#eef2f7';
     ctx.fillRect(0, 0, IW, IH);
 
-    // Header
+    // ── Header ────────────────────────────────────────────────────────────────
     ctx.fillStyle = '#0a1f44';
     ctx.fillRect(0, 0, IW, headerH - 8);
     ctx.fillStyle = '#f5c800';
     ctx.fillRect(0, headerH - 8, IW, 8);
 
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 36px Arial';
-    ctx.fillText('CDE El Valle — Robo de posesión', pad, 48);
-    ctx.font = '22px Arial';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 34px Arial';
+    ctx.fillText('CDE El Valle — Robo de posesión', pad, 44);
+    ctx.font = '20px Arial';
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.fillText(`vs ${state.rival}  ·  ${state.date}  ·  Vista: ${state.orient === 'fondo' ? 'fondo' : 'lateral'}`, pad, 80);
+    ctx.fillText(`vs ${state.rival}  ·  ${state.date}  ·  ${state.orient === 'fondo' ? 'Vista fondo' : 'Vista lateral'}`, pad, 76);
 
-    // Stats row — 4 cards below header
+    // ── Stats cards ───────────────────────────────────────────────────────────
+    const paseTotal = periodTotalType(1,'pase') + periodTotalType(2,'pase');
+    const boteTotal = periodTotalType(1,'bote') + periodTotalType(2,'bote');
     const statsData = [
-      { v: total,                      l: 'Total robos' },
-      { v: h1,                         l: '1ª parte' },
-      { v: h2,                         l: '2ª parte' },
-      { v: total > 0 ? (total/2).toFixed(1) : '0', l: 'Media/parte' },
+      { v: total,  l: 'Total robos', accent: true },
+      { v: h1,     l: '1ª parte' },
+      { v: h2,     l: '2ª parte' },
+      { v: paseTotal, l: 'En pase' },
+      { v: boteTotal, l: 'En bote' },
+      { v: total > 0 ? Math.round(paseTotal*100/total)+'%' : '0%', l: '% pase' },
     ];
-    const sCardW = Math.floor((IW - pad*2 - 12*3) / 4);
-    statsData.forEach(({ v, l }, i) => {
-      const sx2 = pad + i * (sCardW + 12);
-      const sy2 = headerH + 12;
-      ctx.fillStyle = '#ffffff';
-      roundRect(ctx, sx2, sy2, sCardW, statsH - 16, 10); ctx.fill();
-      ctx.strokeStyle = '#dce8fb'; ctx.lineWidth = 1.5;
-      roundRect(ctx, sx2, sy2, sCardW, statsH - 16, 10); ctx.stroke();
-      ctx.fillStyle = '#0a1f44';
-      ctx.font = `bold ${Math.round(sCardW * 0.22)}px Arial`;
+    const sGap = 10;
+    const sCardW = Math.floor((IW - pad*2 - sGap*5) / 6);
+    const sCardH = statsH - 12;
+    const sy = headerH + 10;
+    statsData.forEach(({ v, l, accent }, i) => {
+      const sx = pad + i * (sCardW + sGap);
+      ctx.fillStyle = accent ? '#0a1f44' : '#ffffff';
+      roundRect(ctx, sx, sy, sCardW, sCardH, 10); ctx.fill();
+      if (!accent) { ctx.strokeStyle = '#c8d8ee'; ctx.lineWidth = 1.5; roundRect(ctx, sx, sy, sCardW, sCardH, 10); ctx.stroke(); }
+      ctx.fillStyle = accent ? '#f5c800' : '#0a1f44';
+      ctx.font = `bold ${Math.round(sCardW * 0.20)}px Arial`;
       ctx.textAlign = 'center';
-      ctx.fillText(v, sx2 + sCardW/2, sy2 + 44);
-      ctx.font = `${Math.round(sCardW * 0.10)}px Arial`;
-      ctx.fillStyle = '#3a5080';
-      ctx.fillText(l.toUpperCase(), sx2 + sCardW/2, sy2 + 63);
+      ctx.fillText(v, sx + sCardW/2, sy + sCardH*0.55);
+      ctx.font = `${Math.round(sCardW * 0.09)}px Arial`;
+      ctx.fillStyle = accent ? 'rgba(255,255,255,0.75)' : '#3a5080';
+      ctx.fillText(l.toUpperCase(), sx + sCardW/2, sy + sCardH*0.82);
       ctx.textAlign = 'left';
     });
 
-    // Half courts side by side
-    const halfY = headerH + statsH + pad/2;
-    const gap = IW - 2*cW - 2*pad;
-    const hx1 = pad, hx2 = pad + cW + gap;
-
-    ctx.font = 'bold 24px Arial';
-    ctx.fillStyle = '#3a5080';
-    ctx.textAlign = 'center';
-    ctx.fillText('1ª PARTE', hx1 + cW/2, halfY + labelH - 6);
-    ctx.fillText('2ª PARTE', hx2 + cW/2, halfY + labelH - 6);
-    ctx.textAlign = 'left';
+    // ── Section divider helper ────────────────────────────────────────────────
+    const sectionLabel = (text, y) => {
+      ctx.fillStyle = '#0a1f44';
+      ctx.font = 'bold 22px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(text, IW/2, y + 22);
+      ctx.textAlign = 'left';
+    };
 
     const rd1 = state.rivalDirection;
     const rd2 = flipDirection(state.rivalDirection);
-    drawCourtOnCanvas(ctx, state.steals[1], rd1, hx1, halfY + labelH, cW, cH);
-    drawCourtOnCanvas(ctx, state.steals[2], rd2, hx2, halfY + labelH, cW, cH);
 
-    // Combined court centered
-    const combY = halfY + halfRowH;
-    const combCW = isLateral ? Math.min(IW - 2*pad, 700) : 320;
-    const combCH = isLateral ? Math.round(combCW/2) : Math.round(combCW*2);
-    const combX = Math.round((IW - combCW) / 2);
+    // ── Half courts ───────────────────────────────────────────────────────────
+    const halfY = headerH + statsH + pad;
 
-    ctx.font = 'bold 24px Arial';
-    ctx.fillStyle = '#0a1f44';
+    // Labels with part totals
+    ctx.font = 'bold 22px Arial';
+    ctx.fillStyle = '#3a5080';
     ctx.textAlign = 'center';
-    ctx.fillText('PARTIDO COMPLETO', IW/2, combY + labelH - 6);
+    ctx.fillText(`1ª PARTE — ${h1} robos`, pad + halfCW/2, halfY + 24);
+    ctx.fillText(`2ª PARTE — ${h2} robos`, pad + halfCW + gap + halfCW/2, halfY + 24);
     ctx.textAlign = 'left';
 
-    drawCourtOnCanvas(ctx, combined, rd1, combX, combY + labelH, combCW, combCH);
+    drawCourtOnCanvas(ctx, flatSteals(state.steals[1]), rd1, pad, halfY + labelH, halfCW, halfCH);
+    drawCourtOnCanvas(ctx, flatSteals(state.steals[2]), rd2, pad + halfCW + gap, halfY + labelH, halfCW, halfCH);
+
+    // ── Combined court ────────────────────────────────────────────────────────
+    const combY = halfY + labelH + halfCH + pad;
+    sectionLabel(`PARTIDO COMPLETO — ${total} robos`, combY);
+    drawCourtOnCanvas(ctx, flatSteals(combined), rd1, pad, combY + labelH, combCW, combCH);
 
     // Footer
     ctx.font = '18px Arial';
