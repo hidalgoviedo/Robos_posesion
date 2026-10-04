@@ -750,43 +750,33 @@ function showResults() {
     return courtWrap;
   }
 
-  // Mini heat maps — two tabs: Pase / Bote / Total per half
+  // Mini heat maps — 3 static courts per half (pase / bote / total)
   const heatMaps = document.getElementById('heat-maps');
   heatMaps.innerHTML = '';
+  heatMaps.style.flexDirection = 'column';
+  heatMaps.style.gap = '1rem';
   [1,2].forEach(half => {
     const rivalDir = half === 1 ? state.rivalDirection : flipDirection(state.rivalDirection);
     const s = state.steals[half];
-    const wrap = document.createElement('div');
-    wrap.style.flex = '1';
-
-    const lbl = document.createElement('div');
-    lbl.style.cssText = 'font-size:.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:.3rem;';
-    lbl.textContent = (half === 1 ? '1ª parte' : '2ª parte') + ` — ${periodTotal(half)} robos`;
-    wrap.appendChild(lbl);
-
-    // Sub-tabs: P B T
-    const tabs = document.createElement('div');
-    tabs.style.cssText = 'display:flex;gap:4px;margin-bottom:4px;';
-    const maps = { pase: buildMiniMap(s.pase, rivalDir), bote: buildMiniMap(s.bote, rivalDir), total: buildMiniMap(flatSteals(s), rivalDir) };
-    let active = 'total';
-    Object.keys(maps).forEach(k => { maps[k].style.display = k === active ? '' : 'none'; wrap.appendChild(maps[k]); });
-    ['pase','bote','total'].forEach(k => {
-      const tb = document.createElement('button');
-      tb.textContent = k === 'pase' ? 'Pase' : k === 'bote' ? 'Bote' : 'Total';
-      tb.style.cssText = `flex:1;padding:3px;font-size:.7rem;font-weight:700;border-radius:6px;border:1.5px solid var(--border);cursor:pointer;background:${k===active?'var(--blue-dark)':'var(--surface)'};color:${k===active?'var(--yellow)':'var(--text-muted)'};`;
-      tb.addEventListener('click', () => {
-        active = k;
-        Object.keys(maps).forEach(m => { maps[m].style.display = m === k ? '' : 'none'; });
-        tabs.querySelectorAll('button').forEach((b,bi) => {
-          const mk = ['pase','bote','total'][bi];
-          b.style.background = mk===k ? 'var(--blue-dark)' : 'var(--surface)';
-          b.style.color = mk===k ? 'var(--yellow)' : 'var(--text-muted)';
-        });
-      });
-      tabs.appendChild(tb);
+    const section = document.createElement('div');
+    const secLbl = document.createElement('div');
+    secLbl.style.cssText = 'font-size:.78rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:.4rem;';
+    secLbl.textContent = (half===1?'1ª parte':'2ª parte') + ` — ${periodTotal(half)} robos (pase: ${periodTotalType(half,'pase')} · bote: ${periodTotalType(half,'bote')})`;
+    section.appendChild(secLbl);
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:.5rem;';
+    [['pase', s.pase], ['bote', s.bote], ['total', flatSteals(s)]].forEach(([name, data]) => {
+      const col = document.createElement('div');
+      col.style.flex = '1';
+      const sublbl = document.createElement('div');
+      sublbl.style.cssText = 'font-size:.68rem;font-weight:700;color:var(--blue-dark);text-align:center;margin-bottom:2px;text-transform:uppercase;';
+      sublbl.textContent = name;
+      col.appendChild(sublbl);
+      col.appendChild(buildMiniMap(data, rivalDir));
+      row.appendChild(col);
     });
-    wrap.insertBefore(tabs, maps.pase);
-    heatMaps.appendChild(wrap);
+    section.appendChild(row);
+    heatMaps.appendChild(section);
   });
 
   // Combined map
@@ -950,25 +940,32 @@ async function sharePDFWhatsApp() {
   btn.disabled = true;
 
   try {
-    const h1 = state.steals[1].reduce((a,b)=>a+b,0);
-    const h2 = state.steals[2].reduce((a,b)=>a+b,0);
-    const total = h1 + h2;
+    const h1 = periodTotal(1), h2 = periodTotal(2), total = h1 + h2;
+    const paseTotal = periodTotalType(1,'pase') + periodTotalType(2,'pase');
+    const boteTotal = periodTotalType(1,'bote') + periodTotalType(2,'bote');
     const combined = getCombinedSteals();
     const isLateral = state.orient === 'lateral';
+    const rd1 = state.rivalDirection;
+    const rd2 = flipDirection(state.rivalDirection);
 
     // ── Layout constants ──────────────────────────────────────────────────────
-    const IW = 1080, pad = 32;
-    const headerH = 100, statsH = 86, labelH = 34, footerH = 36, gap = 16;
+    const IW = 1080, pad = 28;
+    const headerH = 100, statsH = 90, labelH = 30, footerH = 36, gap = 14;
 
-    // Court sizes: half courts side by side, combined fills width
-    const halfCW = Math.floor((IW - pad*2 - gap) / 2);
-    const halfCH = isLateral ? Math.round(halfCW / 2) : Math.round(halfCW * 2);
+    // 3 courts side by side (pase / bote / total) × 2 halves
+    // Then 1 combined court full width
+    const thirdW = Math.floor((IW - pad*2 - gap*2) / 3);
+    const thirdH = isLateral ? Math.round(thirdW / 2) : Math.round(thirdW * 2);
     const combCW = IW - pad*2;
     const combCH = isLateral ? Math.round(combCW / 2) : Math.round(combCW * 2);
 
+    // 2 half rows + 1 combined row
+    const halfRowH = labelH + thirdH + gap;
     const IH = headerH + statsH + pad
-             + labelH + halfCH + pad
-             + labelH + combCH + footerH + pad;
+             + halfRowH        // 1ª parte
+             + halfRowH        // 2ª parte
+             + labelH + combCH
+             + footerH + pad;
 
     const canvas = document.createElement('canvas');
     canvas.width = IW; canvas.height = IH;
@@ -983,73 +980,75 @@ async function sharePDFWhatsApp() {
     ctx.fillRect(0, 0, IW, headerH - 8);
     ctx.fillStyle = '#f5c800';
     ctx.fillRect(0, headerH - 8, IW, 8);
-
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 34px Arial';
-    ctx.fillText('CDE El Valle — Robo de posesión', pad, 44);
-    ctx.font = '20px Arial';
+    ctx.font = 'bold 32px Arial';
+    ctx.fillText('CDE El Valle — Robo de posesión', pad, 42);
+    ctx.font = '19px Arial';
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.fillText(`vs ${state.rival}  ·  ${state.date}  ·  ${state.orient === 'fondo' ? 'Vista fondo' : 'Vista lateral'}`, pad, 76);
+    ctx.fillText(`vs ${state.rival}  ·  ${state.date}  ·  ${state.orient === 'fondo' ? 'Vista fondo' : 'Vista lateral'}`, pad, 72);
 
-    // ── Stats cards ───────────────────────────────────────────────────────────
-    const paseTotal = periodTotalType(1,'pase') + periodTotalType(2,'pase');
-    const boteTotal = periodTotalType(1,'bote') + periodTotalType(2,'bote');
+    // ── Stats cards (6: total, 1ª, 2ª, pase, bote, %pase) ────────────────────
     const statsData = [
-      { v: total,  l: 'Total robos', accent: true },
-      { v: h1,     l: '1ª parte' },
-      { v: h2,     l: '2ª parte' },
+      { v: total,    l: 'Total robos', accent: true },
+      { v: h1,       l: '1ª parte' },
+      { v: h2,       l: '2ª parte' },
       { v: paseTotal, l: 'En pase' },
       { v: boteTotal, l: 'En bote' },
       { v: total > 0 ? Math.round(paseTotal*100/total)+'%' : '0%', l: '% pase' },
     ];
-    const sGap = 10;
+    const sGap = 10, sCardH = statsH - 14;
     const sCardW = Math.floor((IW - pad*2 - sGap*5) / 6);
-    const sCardH = statsH - 12;
-    const sy = headerH + 10;
+    const sy = headerH + 8;
     statsData.forEach(({ v, l, accent }, i) => {
       const sx = pad + i * (sCardW + sGap);
       ctx.fillStyle = accent ? '#0a1f44' : '#ffffff';
-      roundRect(ctx, sx, sy, sCardW, sCardH, 10); ctx.fill();
-      if (!accent) { ctx.strokeStyle = '#c8d8ee'; ctx.lineWidth = 1.5; roundRect(ctx, sx, sy, sCardW, sCardH, 10); ctx.stroke(); }
+      roundRect(ctx, sx, sy, sCardW, sCardH, 8); ctx.fill();
+      if (!accent) { ctx.strokeStyle = '#c8d8ee'; ctx.lineWidth = 1.5; roundRect(ctx, sx, sy, sCardW, sCardH, 8); ctx.stroke(); }
       ctx.fillStyle = accent ? '#f5c800' : '#0a1f44';
-      ctx.font = `bold ${Math.round(sCardW * 0.20)}px Arial`;
+      ctx.font = `bold ${Math.round(sCardW * 0.22)}px Arial`;
       ctx.textAlign = 'center';
-      ctx.fillText(v, sx + sCardW/2, sy + sCardH*0.55);
-      ctx.font = `${Math.round(sCardW * 0.09)}px Arial`;
-      ctx.fillStyle = accent ? 'rgba(255,255,255,0.75)' : '#3a5080';
-      ctx.fillText(l.toUpperCase(), sx + sCardW/2, sy + sCardH*0.82);
+      ctx.fillText(v, sx + sCardW/2, sy + sCardH*0.56);
+      ctx.font = `${Math.round(sCardW * 0.10)}px Arial`;
+      ctx.fillStyle = accent ? 'rgba(255,255,255,0.7)' : '#3a5080';
+      ctx.fillText(l.toUpperCase(), sx + sCardW/2, sy + sCardH*0.84);
       ctx.textAlign = 'left';
     });
 
-    // ── Section divider helper ────────────────────────────────────────────────
-    const sectionLabel = (text, y) => {
+    // ── Helper: section title + 3 courts (pase / bote / total) ───────────────
+    const draw3Courts = (label, stealObj, rivalDir, startY) => {
+      // Section title
       ctx.fillStyle = '#0a1f44';
-      ctx.font = 'bold 22px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(text, IW/2, y + 22);
+      ctx.font = 'bold 20px Arial';
       ctx.textAlign = 'left';
+      ctx.fillText(label, pad, startY + 22);
+
+      const subLabels = ['Pase', 'Bote', 'Total'];
+      const subSteals = [stealObj.pase, stealObj.bote, flatSteals(stealObj)];
+      subSteals.forEach((data, ci) => {
+        const cx = pad + ci * (thirdW + gap);
+        // sub-label
+        ctx.fillStyle = '#3a5080';
+        ctx.font = `bold ${Math.round(thirdW * 0.085)}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillText(subLabels[ci], cx + thirdW/2, startY + labelH - 2);
+        ctx.textAlign = 'left';
+        drawCourtOnCanvas(ctx, data, rivalDir, cx, startY + labelH, thirdW, thirdH);
+      });
     };
 
-    const rd1 = state.rivalDirection;
-    const rd2 = flipDirection(state.rivalDirection);
+    // ── 1ª parte ──────────────────────────────────────────────────────────────
+    const half1Y = headerH + statsH + pad;
+    draw3Courts(`1ª PARTE — ${h1} robos  (pase: ${periodTotalType(1,'pase')}  bote: ${periodTotalType(1,'bote')})`, state.steals[1], rd1, half1Y);
 
-    // ── Half courts ───────────────────────────────────────────────────────────
-    const halfY = headerH + statsH + pad;
+    // ── 2ª parte ──────────────────────────────────────────────────────────────
+    const half2Y = half1Y + halfRowH;
+    draw3Courts(`2ª PARTE — ${h2} robos  (pase: ${periodTotalType(2,'pase')}  bote: ${periodTotalType(2,'bote')})`, state.steals[2], rd2, half2Y);
 
-    // Labels with part totals
-    ctx.font = 'bold 22px Arial';
-    ctx.fillStyle = '#3a5080';
-    ctx.textAlign = 'center';
-    ctx.fillText(`1ª PARTE — ${h1} robos`, pad + halfCW/2, halfY + 24);
-    ctx.fillText(`2ª PARTE — ${h2} robos`, pad + halfCW + gap + halfCW/2, halfY + 24);
-    ctx.textAlign = 'left';
-
-    drawCourtOnCanvas(ctx, flatSteals(state.steals[1]), rd1, pad, halfY + labelH, halfCW, halfCH);
-    drawCourtOnCanvas(ctx, flatSteals(state.steals[2]), rd2, pad + halfCW + gap, halfY + labelH, halfCW, halfCH);
-
-    // ── Combined court ────────────────────────────────────────────────────────
-    const combY = halfY + labelH + halfCH + pad;
-    sectionLabel(`PARTIDO COMPLETO — ${total} robos`, combY);
+    // ── Partido completo ──────────────────────────────────────────────────────
+    const combY = half2Y + halfRowH;
+    ctx.fillStyle = '#0a1f44';
+    ctx.font = 'bold 20px Arial';
+    ctx.fillText(`PARTIDO COMPLETO — ${total} robos  (pase: ${paseTotal}  bote: ${boteTotal})`, pad, combY + 22);
     drawCourtOnCanvas(ctx, flatSteals(combined), rd1, pad, combY + labelH, combCW, combCH);
 
     // Footer
