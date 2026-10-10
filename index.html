@@ -832,8 +832,8 @@ function mirrorIndex(i) {
   const cols = isLateral ? 4 : 2;
   const rows = isLateral ? 2 : 4;
   const col = i % cols, row = Math.floor(i / cols);
-  if (isLateral) return row * cols + (cols - 1 - col);
-  return (rows - 1 - row) * cols + col;
+  // 180° rotation: flip both row and column
+  return (rows - 1 - row) * cols + (cols - 1 - col);
 }
 
 function getCombinedSteals() {
