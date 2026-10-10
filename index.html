@@ -990,23 +990,23 @@ async function sharePDFWhatsApp() {
 
     // ── Layout constants ──────────────────────────────────────────────────────
     const IW = 1080, pad = 28;
-    const headerH = 100, statsH = 90, footerH = 36, gap = 14;
-    const titleH = 30;   // height for section title line
-    const colLblH = 28;  // height for column sub-labels
-    const courtsGap = 10;
+    // ── Layout: mirrors results screen exactly ────────────────────────────────
+    // 3 type-sections (Pase, Bote, Total) × 3 columns (1ª parte, 2ª parte, Completo)
+    const headerH = 100, statsH = 90, footerH = 36;
+    const secGap = 20;       // gap between sections
+    const colGap = 12;       // gap between columns
+    const typeTitleH = 36;   // type section title bar height
+    const colLblH = 26;      // column label height
+    const colBorderH = 3;    // colored border under type title
 
-    // 3 courts side by side (pase / bote / total) × 2 halves
-    const thirdW = Math.floor((IW - pad*2 - gap*2) / 3);
+    const thirdW = Math.floor((IW - pad*2 - colGap*2) / 3);
     const thirdH = isLateral ? Math.round(thirdW / 2) : Math.round(thirdW * 2);
-    const combCW = IW - pad*2;
-    const combCH = isLateral ? Math.round(combCW / 2) : Math.round(combCW * 2);
 
-    const halfRowH = titleH + colLblH + thirdH + courtsGap;
-    const IH = headerH + statsH + pad
-             + halfRowH        // 1ª parte
-             + halfRowH        // 2ª parte
-             + titleH + combCH
-             + footerH + pad;
+    // Each type section height: title + colLabels + court
+    const secH = typeTitleH + colLblH + thirdH;
+    const IH = headerH + statsH + secGap
+             + (secH + secGap) * 3   // 3 type sections
+             + footerH;
 
     const canvas = document.createElement('canvas');
     canvas.width = IW; canvas.height = IH;
@@ -1028,11 +1028,11 @@ async function sharePDFWhatsApp() {
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
     ctx.fillText(`vs ${state.rival}  ·  ${state.date}  ·  ${state.orient === 'fondo' ? 'Vista fondo' : 'Vista lateral'}`, pad, 72);
 
-    // ── Stats cards (6: total, 1ª, 2ª, pase, bote, %pase) ────────────────────
+    // ── Stats cards ───────────────────────────────────────────────────────────
     const statsData = [
-      { v: total,    l: 'Total robos', accent: true },
-      { v: h1,       l: '1ª parte' },
-      { v: h2,       l: '2ª parte' },
+      { v: total,     l: 'Total robos', accent: true },
+      { v: h1,        l: '1ª parte' },
+      { v: h2,        l: '2ª parte' },
       { v: paseTotal, l: 'En pase' },
       { v: boteTotal, l: 'En bote' },
       { v: total > 0 ? Math.round(paseTotal*100/total)+'%' : '0%', l: '% pase' },
@@ -1055,55 +1055,65 @@ async function sharePDFWhatsApp() {
       ctx.textAlign = 'left';
     });
 
-    // ── Helper: section title + 3 courts (pase / bote / total) ───────────────
-    const draw3Courts = (label, stealObj, rivalDir, startY) => {
-      // Row 1: section title (full width)
+    // ── Type sections: same structure as results screen ───────────────────────
+    // columns: 1ª parte (rd1), 2ª parte (rd2), Completo (rd1)
+    const typeTypes = [
+      { key: 'pase',  label: 'Robo en pase',  color: '#1a40a0' },
+      { key: 'bote',  label: 'Robo en bote',  color: '#c97a00' },
+      { key: 'total', label: 'Total robos',    color: '#0a1f44' },
+    ];
+    const colDefs = [
+      { label: '1ª parte', dir: rd1 },
+      { label: '2ª parte', dir: rd2 },
+      { label: 'Completo',  dir: rd1 },
+    ];
+
+    let curY = headerH + statsH + secGap;
+
+    typeTypes.forEach(({ key, label, color }) => {
+      const d1 = key==='total' ? flatSteals(state.steals[1]) : state.steals[1][key];
+      const d2 = key==='total' ? flatSteals(state.steals[2]) : state.steals[2][key];
+      const dc = key==='total' ? flatSteals(combined) : combined[key];
+      const t1 = d1.reduce((a,b)=>a+b,0);
+      const t2 = d2.reduce((a,b)=>a+b,0);
+      const tc = t1+t2;
+      const colData = [d1, d2, dc];
+      const colTotals = [t1, t2, tc];
+
+      // Section card background
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(pad, startY, IW - pad*2, titleH - 4);
-      ctx.fillStyle = '#0a1f44';
-      ctx.font = 'bold 19px Arial';
-      ctx.textAlign = 'left';
-      ctx.fillText(label, pad, startY + titleH - 8);
+      roundRect(ctx, pad, curY, IW-pad*2, secH, 10); ctx.fill();
+      ctx.strokeStyle = '#dce8fb'; ctx.lineWidth = 1;
+      roundRect(ctx, pad, curY, IW-pad*2, secH, 10); ctx.stroke();
 
-      // Row 2: column sub-labels centered over each court
-      const subLabels = [
-        `Pase (${stealObj.pase.reduce((a,b)=>a+b,0)})`,
-        `Bote (${stealObj.bote.reduce((a,b)=>a+b,0)})`,
-        `Total (${flatSteals(stealObj).reduce((a,b)=>a+b,0)})`
-      ];
-      const subSteals = [stealObj.pase, stealObj.bote, flatSteals(stealObj)];
-      const colLblY = startY + titleH;
-      subLabels.forEach((lbl, ci) => {
-        const cx = pad + ci * (thirdW + gap);
+      // Type title bar
+      ctx.fillStyle = color;
+      ctx.fillRect(pad, curY, IW-pad*2, typeTitleH);
+      // round top corners only via clip trick — just use rounded rect fill
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold 22px Arial`;
+      ctx.fillText(label, pad + 16, curY + typeTitleH - 10);
+
+      // Column labels
+      const colLblY = curY + typeTitleH;
+      colDefs.forEach(({ label: cl }, ci) => {
+        const cx = pad + ci * (thirdW + colGap);
         ctx.fillStyle = '#3a5080';
-        ctx.font = `bold ${Math.round(thirdW * 0.08)}px Arial`;
+        ctx.font = `bold ${Math.round(thirdW * 0.075)}px Arial`;
         ctx.textAlign = 'center';
-        ctx.fillText(lbl, cx + thirdW/2, colLblY + colLblH - 6);
-      });
-
-      // Row 3: courts
-      const courtY = startY + titleH + colLblH;
-      subSteals.forEach((data, ci) => {
-        const cx = pad + ci * (thirdW + gap);
+        ctx.fillText(`${cl} (${colTotals[ci]})`, cx + thirdW/2, colLblY + colLblH - 6);
         ctx.textAlign = 'left';
-        drawCourtOnCanvas(ctx, data, rivalDir, cx, courtY, thirdW, thirdH);
       });
-    };
 
-    // ── 1ª parte ──────────────────────────────────────────────────────────────
-    const half1Y = headerH + statsH + pad;
-    draw3Courts(`1ª PARTE — ${h1} robos  (pase: ${periodTotalType(1,'pase')}  bote: ${periodTotalType(1,'bote')})`, state.steals[1], rd1, half1Y);
+      // Courts
+      const courtY = curY + typeTitleH + colLblH;
+      colDefs.forEach(({ dir }, ci) => {
+        const cx = pad + ci * (thirdW + colGap);
+        drawCourtOnCanvas(ctx, colData[ci], dir, cx, courtY, thirdW, thirdH);
+      });
 
-    // ── 2ª parte ──────────────────────────────────────────────────────────────
-    const half2Y = half1Y + halfRowH;
-    draw3Courts(`2ª PARTE — ${h2} robos  (pase: ${periodTotalType(2,'pase')}  bote: ${periodTotalType(2,'bote')})`, state.steals[2], rd2, half2Y);
-
-    // ── Partido completo ──────────────────────────────────────────────────────
-    const combY = half2Y + halfRowH;
-    ctx.fillStyle = '#0a1f44';
-    ctx.font = 'bold 19px Arial';
-    ctx.fillText(`PARTIDO COMPLETO — ${total} robos  (pase: ${paseTotal}  bote: ${boteTotal})`, pad, combY + titleH - 8);
-    drawCourtOnCanvas(ctx, flatSteals(combined), rd1, pad, combY + titleH, combCW, combCH);
+      curY += secH + secGap;
+    });
 
     // Footer
     ctx.font = '18px Arial';
